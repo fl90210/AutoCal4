@@ -5,7 +5,8 @@ import time  # Import time module
 # Initialize the webcam
 cap = cv2.VideoCapture(1)  # Change if using an external webcam
 
-# Create an ORB detector
+# Create a FAST detector
+fast = cv2.FastFeatureDetector_create(threshold=35, nonmaxSuppression=True)
 orb = cv2.ORB_create(nfeatures=1000)
 
 # Define a Patch object to store image data and keypoints
@@ -13,13 +14,13 @@ class Patch:
     def __init__(self, image, position, patch_size):
         self.image = image  # The cropped patch image
         self.position = position  # (x, y) position in the original frame
-        self.keypoints = []  # ORB keypoints detected inside this patch
+        self.keypoints = []  # FAST keypoints detected inside this patch
         self.patch_size = patch_size  # Patch size
 
-    def detect_keypoints(self, orb_detector):
-        """Detect ORB keypoints inside the patch and store them."""
+    def detect_keypoints(self, fast_detector):
+        """Detect FAST keypoints inside the patch and store them."""
         gray_patch = cv2.cvtColor(self.image, cv2.COLOR_BGR2GRAY)
-        self.keypoints = orb_detector.detect(gray_patch, None)  # Detect keypoints in the patch
+        self.keypoints = fast_detector.detect(gray_patch)  # Detect keypoints in the patch
 
     def map_keypoints_to_global(self):
         """Convert patch-local keypoints to global coordinates."""
@@ -41,11 +42,11 @@ while True:
     # Convert to grayscale
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    # --- Measure ORB keypoint extraction time ---
-    start_time = time.time()  # Start the timer
-    keypoints = orb.detect(gray, None)  # ORB keypoint detection
-    elapsed_time = time.time() - start_time  # Calculate elapsed time
-    print(f"ORB Keypoint Extraction Time: {elapsed_time:.6f} seconds")  # Print result
+    # --- Measure FAST keypoint extraction time ---
+    start_time = time.perf_counter()  # Start the timer
+    keypoints = fast.detect(gray, None)  # FAST keypoint detection
+    elapsed_time = time.perf_counter() - start_time  # Calculate elapsed time
+    print(f"FAST Keypoint Extraction Time: {elapsed_time:.6f} seconds")  # Print result
     # -------------------------------------------------
 
     # Sort keypoints in a stable way (top-left to bottom-right)
@@ -73,7 +74,7 @@ while True:
 
     # Detect keypoints inside each patch
     for patch in patches:
-        patch.detect_keypoints(orb)
+        patch.detect_keypoints(fast)
         global_keypoints = patch.map_keypoints_to_global()
 
         # Store motion vectors (original keypoints to new keypoints)
@@ -108,13 +109,23 @@ while True:
 
     # Draw motion arrows (from original keypoints to detected keypoints inside patches)
     reconstructed_with_arrows = reconstructed_frame.copy()
-    for (start, end) in motion_arrows:
-        cv2.arrowedLine(reconstructed_with_arrows, start, end, (0, 255, 255), 2, tipLength=0.3)
+    # for (start, end) in motion_arrows:
+        # cv2.arrowedLine(reconstructed_with_arrows, start, end, (0, 255, 255), 2, tipLength=0.3)
+
+     # --- Run ORB on the reconstructed frame ---
+    gray_reconstructed = cv2.cvtColor(reconstructed_with_arrows, cv2.COLOR_BGR2GRAY)
+    orb_keypoints = orb.detect(gray_reconstructed, None)  # ORB keypoint detection
+    orb_keypoints = sorted(orb_keypoints, key=lambda kp: (kp.pt[1], kp.pt[0]))  # Sort ORB keypoints
+
+    # Draw ORB keypoints on the reconstructed frame
+    reconstructed_with_orb_keypoints = reconstructed_with_arrows.copy()
+    cv2.drawKeypoints(reconstructed_with_arrows, orb_keypoints, reconstructed_with_orb_keypoints, color=(0, 0, 255), flags=0)
 
     # Display all three windows
-    cv2.imshow("ORB Keypoints", frame_with_keypoints)
+    cv2.imshow("FAST Keypoints", frame_with_keypoints)
     cv2.imshow("Keypoint Patches Grid", stacked_patches)
     cv2.imshow("Reconstructed Image with Motion Arrows", reconstructed_with_arrows)
+    cv2.imshow("Reconstructed with ORB Keypoints", reconstructed_with_orb_keypoints)
 
     # Break loop on 'q' key press
     if cv2.waitKey(1) & 0xFF == ord('q'):
